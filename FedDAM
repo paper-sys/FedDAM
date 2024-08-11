@@ -1,0 +1,225 @@
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from os import listdir
+from tensorflow.keras.preprocessing import sequence
+import tensorflow as tfs
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Activation, Flatten
+
+
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import load_model
+from tensorflow.keras.callbacks import ModelCheckpoint
+
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Dropout
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Activation, Flatten, Conv2D, MaxPooling2D, LeakyReLU
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+height = 28
+width = 28
+depth = 1
+
+inputShape = (height, width, depth)
+
+# Prepare the train and test dataset.
+from tensorflow import keras
+
+batch_size = 64
+(x_train, y_train), (x_test, y_test) = keras.datasets.fashion_mnist.load_data()
+# Normalize data
+x_train = x_train.astype("float32") / 255.0
+x_train = np.reshape(x_train, (-1, 28, 28, 1))
+
+x_test = x_test.astype("float32") / 255.0
+x_test = np.reshape(x_test, (-1, 28, 28,1))
+X = []
+Y = []
+j = 0
+for i in range(40):
+    X.append(x_train[j:j + 3000])
+    Y.append(y_train[j:j + 3000])
+    j += 1450
+
+
+
+from tensorflow.keras.layers import BatchNormalization
+
+
+# For teacher in each cluster
+class MODEL:
+    @staticmethod
+    def build():
+        model = Sequential()
+        model.add(Conv2D(32, (3, 3), strides=(2, 2), padding="same", input_shape=inputShape))
+        model.add(Conv2D(64, (3, 3), strides=(2, 2), padding="same"))
+        model.add(Conv2D(64, (3, 3), strides=(2, 2), padding="same"))
+        model.add(Conv2D(128, (3, 3), strides=(4, 4), padding="same"))
+        model.add(Flatten())
+        model.add(Dense(10, activation='softmax'))  # for output layer
+        return model
+
+
+# For student in each cluster
+class MODEL1:
+    @staticmethod
+    def build():
+        model = Sequential()
+        model.add(Conv2D(32, (3, 3), strides=(2, 2), padding="same", input_shape=inputShape))
+        model.add(Conv2D(16, (3, 3), strides=(2, 2), padding="same"))
+        model.add(Conv2D(16, (3, 3), strides=(2, 2), padding="same"))
+        model.add(Conv2D(128, (3, 3), strides=(4, 4), padding="same"))
+        model.add(Flatten())
+        model.add(Dense(10, activation='softmax'))  # for output layer
+        return model
+
+# class MODEL:
+#     @staticmethod
+#     def build():
+#         model = Sequential()
+#         model.add(Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=(32, 32, 3)))
+#         model.add(MaxPooling2D((2, 2)))
+#         model.add(Conv2D(64, (3, 3), activation='relu', padding='same'))
+#         model.add(MaxPooling2D((2, 2)))
+#         model.add(Flatten())
+#         model.add(Dense(512, activation='relu'))
+#         model.add(Dropout(0.5))
+#         model.add(Dense(10, activation='softmax'))
+#         return model
+#
+#
+# class MODEL1:
+#     @staticmethod
+#     def build():
+#         model = Sequential()
+#         model.add(Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=(32, 32, 3)))
+#         model.add(MaxPooling2D((2, 2)))
+#         model.add(Conv2D(32, (3, 3), activation='relu', padding='same'))
+#         model.add(MaxPooling2D((2, 2)))
+#         model.add(Flatten())
+#         model.add(Dense(512, activation='relu'))
+#         model.add(Dropout(0.5))
+#         model.add(Dense(10, activation='softmax'))
+#         return model
+
+from sklearn.metrics import accuracy_score
+
+
+def test_model(X_test, Y_test, model, comm_round):
+    model.compile(optimizer=keras.optimizers.Adam(),
+                  loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+                  metrics=[keras.metrics.SparseCategoricalAccuracy()],
+                  )
+    # loss, acc = model.evaluate(x_test, y_test)
+    acc, loss = model.evaluate(X_test, Y_test)
+    return acc, loss
+
+
+def train_client(client_data, client_labels, model):
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model.fit(client_data, client_labels, epochs=5, batch_size=32)
+    return model
+
+def compute_dynamic_attention(accuracy, loss):
+    # Combining accuracy and loss for attention calculation
+    #return 1 + k * (1 - accuracy) * (a ** -accuracy) + b * loss
+
+     return 1 + loss * (a**-accuracy)
+# 定义聚合函数
+def aggregate1(models):
+    # 这里我们简单地取所有模型参数的平均值作为聚合结果
+    averaged_model = models[0].copy()
+    for i in range(1, len(models)):
+        for layer_index, layer_weights in enumerate(models[i]):
+            averaged_model[layer_index] = averaged_model[layer_index] + layer_weights
+
+    # 计算平均值
+    for layer_index in range(len(averaged_model)):
+        averaged_model[layer_index] /= len(models)
+
+    return averaged_model
+def aggregate(models, attention_values):
+    # 这里我们简单地取所有模型参数的加权平均值作为聚合结果
+    averaged_model = models[0].copy()
+    for i in range(1, len(models)):
+        for layer_index, layer_weights in enumerate(models[i]):
+            averaged_model[layer_index] = averaged_model[layer_index] + layer_weights * attention_values[i]
+
+    # 计算平均值
+    for layer_index in range(len(averaged_model)):
+        averaged_model[layer_index] /= len(models)
+
+    return averaged_model
+
+
+from sklearn.metrics import accuracy_score
+
+client_models = []
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.decomposition import PCA
+from sklearn.metrics.pairwise import euclidean_distances, cosine_similarity
+from tensorflow import keras
+from sklearn.cluster import KMeans
+import random
+import time
+
+beta = 0.05
+comms_round= 50
+# total_clusters = 20
+batch_size = 64
+# Assuming other necessary functions and the MODEL, MODEL1, Distiller definitions are above this code
+def create_dirichlet_distributed_data(X, Y, num_clients, beta):
+    if len(Y.shape) > 1 and Y.shape[1] > 1:  # Check if Y is one-hot encoded
+        Y_int = np.argmax(Y, axis=1)  # Convert from one-hot to integer labels
+    else:
+        Y_int = Y.ravel()  # Simply flatten the array
+    num_classes = len(np.unique(Y_int))
+    client_data = [[] for _ in range(num_clients)]
+    label_distribution = np.random.dirichlet([beta] * num_classes, num_clients)
+    for i in range(len(Y_int)):
+        target_label = Y_int[i]
+        client_probabilities = label_distribution[:, target_label]
+        client = np.random.choice(np.arange(num_clients), p=client_probabilities / sum(client_probabilities))
+        client_data[client].append((X[i], Y[i]))
+    client_data = [(np.array([t[0] for t in client]), np.array([t[1] for t in client])) for client in client_data]
+    return client_data
+# Define the total number of clients and beta for Dirichlet distribution
+total_clients = 20
+# Apply the Dirichlet distribution to create non-IID data
+clients_data = create_dirichlet_distributed_data(x_train, y_train, total_clients, beta)
+# Continue with your original code:
+global1 = MODEL()
+global_model = global1.build()
+global_model_weights_list = []
+a = 8  # example value for a
+for comm_round in range(comms_round):
+    global_weights = global_model.get_weights()
+    print("\nCommunication Round:", comm_round)
+    attention_values = []
+    client_models = []
+    for ind in range(total_clients):
+        client_tuple = clients_data[ind]
+        if len(client_tuple) == 3:
+            client_data, client_labels, cluster_assignment = client_tuple
+        elif len(client_tuple) == 2:
+            client_data, client_labels = client_tuple
+        client_model = MODEL.build()
+        client_model.set_weights(global_weights)
+        client_model = train_client(client_data, client_labels, client_model)
+        client_accuracy, client_loss = test_model(x_test, y_test, client_model, comm_round)
+        attention_value = compute_dynamic_attention(client_accuracy, client_loss, a)
+        attention_values.append(attention_value)
+        client_models.append(client_model)
+    # 聚合客户端模型
+    global_model.set_weights(aggregate([client_model.get_weights() for client_model in client_models], attention_values))
+    global_loss, global_acc = test_model(x_test, y_test, global_model, comm_round)
+    print("GLOBAL ACCURACY", global_acc, "GLOBAL LOSS", global_loss)
